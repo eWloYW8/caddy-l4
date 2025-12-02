@@ -67,6 +67,11 @@ type Connection struct {
 
 	Logger *zap.Logger
 
+	// Namespace is the variable prefix for this connection context.
+	// It is used to namespace variables set by handlers to avoid collisions
+	// in nested routes.
+	Namespace string
+
 	buf          []byte // stores matching data
 	offset       int
 	frozenOffset int
@@ -133,6 +138,7 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 		Conn:         conn,
 		Context:      cx.Context,
 		Logger:       cx.Logger,
+		Namespace:    cx.Namespace,
 		buf:          cx.buf,
 		offset:       cx.offset,
 		matching:     cx.matching,
@@ -200,6 +206,9 @@ func (cx *Connection) SetVar(key string, value any) {
 	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
 	if !ok {
 		return
+	}
+	if cx.Namespace != "" {
+		key = cx.Namespace + "." + key
 	}
 	varMap[key] = value
 }

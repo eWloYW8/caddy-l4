@@ -40,6 +40,9 @@ type Handler struct {
 	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
+	// Tag is an optional string to prepend to variable names set by handlers within this subroute, creating a namespace.
+	Tag string `json:"tag,omitempty"`
+
 	logger *zap.Logger
 }
 
@@ -70,13 +73,27 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the connections.
 func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
+	originalNamespace := cx.Namespace
+
+	if h.Tag != "" {
+		if originalNamespace != "" {
+			cx.Namespace = originalNamespace + "." + h.Tag
+		} else {
+			cx.Namespace = h.Tag
+		}
+	}
+
+	defer func() {
+		cx.Namespace = originalNamespace
+	}()
+
 	subroute := h.Routes.Compile(h.logger, time.Duration(h.MatchingTimeout), next)
 	return subroute.Handle(cx)
 }
 
 // UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
 //
-//	subroute {
+//	subroute [<tag>] {
 //		matching_timeout <duration>
 //		@a <matcher> [<matcher_args>]
 //		@b {
@@ -99,9 +116,12 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next() // consume wrapper name
 
-	// No same-line options are supported
-	if d.CountRemainingArgs() > 0 {
-		return d.ArgErr()
+	// Optional tag argument
+	if d.NextArg() {
+		h.Tag = d.Val()
+		if d.NextArg() {
+			return d.ArgErr()
+		}
 	}
 
 	if err := layer4.ParseCaddyfileNestedRoutes(d, &h.Routes, &h.MatchingTimeout); err != nil {
